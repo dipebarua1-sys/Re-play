@@ -56,8 +56,17 @@ export default function App() {
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg'>('sm');
   const [chatWidth, setChatWidth] = useState<'narrow' | 'standard' | 'wide'>('standard');
   const [showGeneralSettings, setShowGeneralSettings] = useState(false);
+  const [apiKeyMissing, setApiKeyMissing] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Check if API key is defined
+    if (!process.env.GEMINI_API_KEY) {
+      console.error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
+      setApiKeyMissing(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -173,7 +182,9 @@ export default function App() {
         <h1 className={cn(
           "text-xl font-semibold tracking-tight",
           isDarkMode ? "text-slate-100" : "text-slate-800"
-        )}>Re-Play</h1>
+        )}>
+          {!mode ? "Re-Play" : mode === 'reply' ? "Reply Something" : "Say Something"}
+        </h1>
         <div className="flex items-center gap-2">
           {mode && (
             <button 
@@ -224,6 +235,24 @@ export default function App() {
           chatWidth === 'narrow' ? "max-w-xl" : chatWidth === 'wide' ? "max-w-5xl" : "max-w-3xl",
           fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base"
         )}>
+          {apiKeyMissing && (
+            <div className={cn(
+              "p-6 rounded-3xl border-2 border-red-500/20 bg-red-500/5 text-center space-y-4",
+              isDarkMode ? "bg-red-900/10" : "bg-red-50"
+            )}>
+              <div className="p-3 bg-red-500/10 rounded-full w-fit mx-auto">
+                <X className="w-6 h-6 text-red-500" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-red-500">API Key Missing</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  The <code className="bg-slate-200 dark:bg-slate-800 px-1 rounded">GEMINI_API_KEY</code> environment variable is not set. 
+                  Please add it to your Netlify environment variables and redeploy.
+                </p>
+              </div>
+            </div>
+          )}
+
           {!mode && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full py-10 text-center space-y-8">
               <div className={cn(
