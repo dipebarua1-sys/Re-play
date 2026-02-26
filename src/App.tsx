@@ -21,7 +21,11 @@ import {
   MessageSquareText,
   ArrowLeft,
   SlidersHorizontal,
-  X
+  X,
+  RefreshCw,
+  Type as TypeIcon,
+  Maximize2,
+  Settings2
 } from 'lucide-react';
 import { generateCorporateReply, ReplyRequest, ReplyResponse } from './services/geminiService';
 import { clsx, type ClassValue } from 'clsx';
@@ -49,6 +53,9 @@ export default function App() {
   const [copied, setCopied] = useState<string | null>(null);
   const [activeQuickSetting, setActiveQuickSetting] = useState<'sender' | 'tone' | 'language' | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg'>('sm');
+  const [chatWidth, setChatWidth] = useState<'narrow' | 'standard' | 'wide'>('standard');
+  const [showGeneralSettings, setShowGeneralSettings] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -103,6 +110,49 @@ export default function App() {
     }
   };
 
+  const handleRegenerate = async (index: number) => {
+    if (loading) return;
+    
+    // Find the closest preceding user message
+    let userMessageContent = '';
+    for (let i = index - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userMessageContent = messages[i].content as string;
+        break;
+      }
+    }
+
+    if (!userMessageContent) return;
+
+    setLoading(true);
+    try {
+      const res = await generateCorporateReply({ 
+        message: userMessageContent, 
+        sender, 
+        tone, 
+        inputLanguage,
+        mode: mode || 'reply'
+      });
+      
+      const newAssistantMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: res,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => {
+        const next = [...prev];
+        next[index] = newAssistantMsg;
+        return next;
+      });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopied(id);
@@ -151,6 +201,16 @@ export default function App() {
           >
             {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
+          <button 
+            onClick={() => setShowGeneralSettings(true)}
+            className={cn(
+              "p-2 rounded-full transition-colors",
+              isDarkMode ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            )}
+            title="General Settings"
+          >
+            <Settings2 className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
@@ -159,7 +219,11 @@ export default function App() {
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-8 sm:px-6"
       >
-        <div className="max-w-3xl mx-auto space-y-8">
+        <div className={cn(
+          "mx-auto space-y-8 transition-all duration-300",
+          chatWidth === 'narrow' ? "max-w-xl" : chatWidth === 'wide' ? "max-w-5xl" : "max-w-3xl",
+          fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base"
+        )}>
           {!mode && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full py-10 text-center space-y-8">
               <div className={cn(
@@ -242,64 +306,86 @@ export default function App() {
             </div>
           )}
 
-          {messages.map((msg) => (
+          {messages.map((msg, idx) => (
             <div 
               key={msg.id}
               className={cn(
-                "flex w-full",
+                "flex w-full group/msg",
                 msg.role === 'user' ? "justify-end" : "justify-start"
               )}
             >
-              <div className={cn(
-                "max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
-                msg.role === 'user' 
-                  ? (isDarkMode ? "bg-slate-800 text-slate-200 rounded-tr-none" : "bg-slate-100 text-slate-800 rounded-tr-none")
-                  : (isDarkMode ? "bg-slate-900 border border-slate-800 shadow-sm rounded-tl-none text-slate-200" : "bg-white border border-slate-100 shadow-sm rounded-tl-none text-slate-800")
-              )}>
-                {typeof msg.content === 'string' ? (
-                  <p>{msg.content}</p>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">English Reply</span>
-                        <button 
-                          onClick={() => copyToClipboard((msg.content as ReplyResponse).english, msg.id + '-en')}
-                          className={cn(
-                            "p-1 rounded transition-colors text-slate-400",
-                            isDarkMode ? "hover:bg-slate-800" : "hover:bg-slate-50"
-                          )}
-                        >
-                          {copied === msg.id + '-en' ? <Check className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
-                        </button>
+              <div className="flex flex-col gap-2 max-w-[85%] sm:max-w-[75%]">
+                <div className={cn(
+                  "rounded-2xl px-4 py-3 leading-relaxed transition-colors duration-500",
+                  msg.role === 'user' 
+                    ? (mode === 'reply' 
+                        ? (isDarkMode ? "bg-purple-900/40 text-purple-100 border border-purple-800/50 rounded-tr-none" : "bg-purple-50 text-purple-900 border border-purple-100 rounded-tr-none")
+                        : (isDarkMode ? "bg-emerald-900/40 text-emerald-100 border border-emerald-800/50 rounded-tr-none" : "bg-emerald-50 text-emerald-900 border border-emerald-100 rounded-tr-none")
+                      )
+                    : (isDarkMode ? "bg-slate-900 border border-slate-800 shadow-sm rounded-tl-none text-slate-200" : "bg-white border border-slate-100 shadow-sm rounded-tl-none text-slate-800")
+                )}>
+                  {typeof msg.content === 'string' ? (
+                    <p>{msg.content}</p>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">English Reply</span>
+                          <button 
+                            onClick={() => copyToClipboard((msg.content as ReplyResponse).english, msg.id + '-en')}
+                            className={cn(
+                              "p-1 rounded transition-colors text-slate-400",
+                              isDarkMode ? "hover:bg-slate-800" : "hover:bg-slate-50"
+                            )}
+                          >
+                            {copied === msg.id + '-en' ? <Check className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
+                          </button>
+                        </div>
+                        <p className={cn(
+                          "font-medium",
+                          isDarkMode ? "text-slate-100" : "text-slate-800"
+                        )}>{msg.content.english}</p>
                       </div>
-                      <p className={cn(
-                        "font-medium",
-                        isDarkMode ? "text-slate-100" : "text-slate-800"
-                      )}>{msg.content.english}</p>
-                    </div>
-                    <div className={cn(
-                      "h-px w-full",
-                      isDarkMode ? "bg-slate-800" : "bg-slate-50"
-                    )} />
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bangla Translation</span>
-                        <button 
-                          onClick={() => copyToClipboard((msg.content as ReplyResponse).bangla, msg.id + '-bn')}
-                          className={cn(
-                            "p-1 rounded transition-colors text-slate-400",
-                            isDarkMode ? "hover:bg-slate-800" : "hover:bg-slate-50"
-                          )}
-                        >
-                          {copied === msg.id + '-bn' ? <Check className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
-                        </button>
+                      <div className={cn(
+                        "h-px w-full",
+                        isDarkMode ? "bg-slate-800" : "bg-slate-50"
+                      )} />
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bangla Translation</span>
+                          <button 
+                            onClick={() => copyToClipboard((msg.content as ReplyResponse).bangla, msg.id + '-bn')}
+                            className={cn(
+                              "p-1 rounded transition-colors text-slate-400",
+                              isDarkMode ? "hover:bg-slate-800" : "hover:bg-slate-50"
+                            )}
+                          >
+                            {copied === msg.id + '-bn' ? <Check className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
+                          </button>
+                        </div>
+                        <p className={cn(
+                          "font-medium",
+                          isDarkMode ? "text-slate-100" : "text-slate-800"
+                        )}>{msg.content.bangla}</p>
                       </div>
-                      <p className={cn(
-                        "font-medium",
-                        isDarkMode ? "text-slate-100" : "text-slate-800"
-                      )}>{msg.content.bangla}</p>
                     </div>
+                  )}
+                </div>
+                
+                {/* Regenerate Button for Assistant Messages */}
+                {msg.role === 'assistant' && typeof msg.content !== 'string' && (
+                  <div className="flex justify-start px-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleRegenerate(idx)}
+                      disabled={loading}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors",
+                        isDarkMode ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                      )}
+                    >
+                      <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
+                      Regenerate
+                    </button>
                   </div>
                 )}
               </div>
@@ -408,7 +494,7 @@ export default function App() {
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
                   activeQuickSetting === 'sender'
-                    ? "bg-indigo-600 border-indigo-600 text-white"
+                    ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
                     : (isDarkMode 
                         ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
                         : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
@@ -423,7 +509,7 @@ export default function App() {
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
                   activeQuickSetting === 'tone'
-                    ? "bg-indigo-600 border-indigo-600 text-white"
+                    ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
                     : (isDarkMode 
                         ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
                         : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
@@ -438,7 +524,7 @@ export default function App() {
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
                   activeQuickSetting === 'language'
-                    ? "bg-indigo-600 border-indigo-600 text-white"
+                    ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
                     : (isDarkMode 
                         ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
                         : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
@@ -465,8 +551,14 @@ export default function App() {
               className={cn(
                 "w-full border rounded-2xl pl-4 pr-12 py-4 text-sm outline-none transition-all shadow-sm resize-none min-h-[56px] max-h-40",
                 isDarkMode 
-                  ? "bg-slate-900 border-slate-800 text-slate-200 focus:ring-indigo-500/10 focus:border-indigo-500/30" 
-                  : "bg-white border-slate-200 text-slate-800 focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500/50"
+                  ? cn(
+                      "bg-slate-900 border-slate-800 text-slate-200",
+                      mode === 'reply' ? "focus:ring-purple-500/10 focus:border-purple-500/30" : "focus:ring-emerald-500/10 focus:border-emerald-500/30"
+                    )
+                  : cn(
+                      "bg-white border-slate-200 text-slate-800",
+                      mode === 'reply' ? "focus:ring-4 focus:ring-purple-500/5 focus:border-purple-500/50" : "focus:ring-4 focus:ring-emerald-500/5 focus:border-emerald-500/50"
+                    )
               )}
               rows={1}
             />
@@ -476,7 +568,10 @@ export default function App() {
               className={cn(
                 "absolute right-2.5 bottom-2.5 p-2 rounded-xl transition-all",
                 input.trim() && !loading 
-                  ? (isDarkMode ? "bg-indigo-600 text-white shadow-md hover:bg-indigo-500" : "bg-slate-900 text-white shadow-md hover:bg-black")
+                  ? (mode === 'reply' 
+                      ? (isDarkMode ? "bg-purple-600 text-white shadow-md hover:bg-purple-500" : "bg-purple-600 text-white shadow-md hover:bg-purple-700")
+                      : (isDarkMode ? "bg-emerald-600 text-white shadow-md hover:bg-emerald-500" : "bg-emerald-600 text-white shadow-md hover:bg-emerald-700")
+                    )
                   : (isDarkMode ? "bg-slate-800 text-slate-600 cursor-not-allowed" : "bg-slate-100 text-slate-300 cursor-not-allowed")
               )}
             >
@@ -492,6 +587,94 @@ export default function App() {
           </p>
         </div>
       </footer>
+      {/* General Settings Modal */}
+      <AnimatePresence>
+        {showGeneralSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowGeneralSettings(false)}
+              className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className={cn(
+                "relative w-full max-w-md p-6 rounded-3xl shadow-2xl space-y-6",
+                isDarkMode ? "bg-slate-900 border border-slate-800" : "bg-white border border-slate-100"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className={cn("text-lg font-bold", isDarkMode ? "text-slate-100" : "text-slate-800")}>General Settings</h3>
+                <button 
+                  onClick={() => setShowGeneralSettings(false)}
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <TypeIcon className="w-4 h-4" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Text Size</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {(['sm', 'base', 'lg'] as const).map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => setFontSize(size)}
+                        className={cn(
+                          "flex-1 py-2 rounded-xl text-xs font-medium transition-all border",
+                          fontSize === size 
+                            ? "bg-indigo-600 border-indigo-600 text-white" 
+                            : (isDarkMode ? "bg-slate-800 border-slate-700 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                        )}
+                      >
+                        {size === 'sm' ? 'Small' : size === 'base' ? 'Medium' : 'Large'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Maximize2 className="w-4 h-4" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Chat Width</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {(['narrow', 'standard', 'wide'] as const).map((width) => (
+                      <button
+                        key={width}
+                        onClick={() => setChatWidth(width)}
+                        className={cn(
+                          "flex-1 py-2 rounded-xl text-xs font-medium transition-all border",
+                          chatWidth === width 
+                            ? "bg-indigo-600 border-indigo-600 text-white" 
+                            : (isDarkMode ? "bg-slate-800 border-slate-700 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                        )}
+                      >
+                        {width.charAt(0).toUpperCase() + width.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowGeneralSettings(false)}
+                className="w-full py-3 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-2xl font-bold text-sm hover:opacity-90 transition-opacity"
+              >
+                Done
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
