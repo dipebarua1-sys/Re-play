@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Transformer } from 'react-konva';
+import useImage from 'use-image';
 import { 
   Send, 
   User, 
@@ -25,9 +27,25 @@ import {
   RefreshCw,
   Type as TypeIcon,
   Maximize2,
-  Settings2
+  Settings2,
+  Image as ImageIcon,
+  Camera,
+  Upload,
+  ImageIcon as LucideImageIcon,
+  Layout,
+  Tag,
+  FileText,
+  ImagePlus,
+  Palette,
+  Layers,
+  Download,
+  ChevronLeft,
+  AlertCircle,
+  Wand2,
+  Sparkles as SparklesIcon
 } from 'lucide-react';
-import { generateCorporateReply, ReplyRequest, ReplyResponse } from './services/geminiService';
+import { generateCorporateReply, ReplyRequest, ReplyResponse, generateProductPhotography } from './services/geminiService';
+import { IMAGE_PRESETS, ImagePreset } from './constants';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -39,8 +57,285 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string | ReplyResponse;
+  image?: string;
+  imageMetadata?: {
+    heading?: string;
+    title?: string;
+    logo?: string;
+  };
   timestamp: Date;
 }
+
+const CanvasEditor = ({ 
+  image, 
+  heading, 
+  title, 
+  logo, 
+  isDarkMode,
+  onExport 
+}: { 
+  image: string; 
+  heading?: string; 
+  title?: string; 
+  logo?: string; 
+  isDarkMode: boolean;
+  onExport: (dataUrl: string) => void;
+}) => {
+  const [bgImage] = useImage(image, 'anonymous');
+  const [logoImage] = useImage(logo || '', 'anonymous');
+  
+  const stageRef = useRef<any>(null);
+  const transformerRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0, scale: 1 });
+  
+  const [elements, setElements] = useState<{
+    id: string;
+    type: 'text' | 'logo';
+    text?: string;
+    x: number;
+    y: number;
+    fontSize?: number;
+    width?: number;
+    height?: number;
+    scaleX?: number;
+    scaleY?: number;
+  }[]>([]);
+
+  useEffect(() => {
+    const initialElements: any[] = [];
+    if (heading) {
+      initialElements.push({ id: 'heading', type: 'text', text: heading, x: 50, y: 50, fontSize: 48 });
+    }
+    if (title) {
+      initialElements.push({ id: 'title', type: 'text', text: title, x: 50, y: 120, fontSize: 32 });
+    }
+    if (logo) {
+      initialElements.push({ id: 'logo', type: 'logo', x: 50, y: 200, width: 150, height: 150 });
+    }
+    setElements(initialElements);
+  }, [heading, title, logo]);
+
+  useEffect(() => {
+    if (selectedId && transformerRef.current) {
+      const node = stageRef.current.findOne('#' + selectedId);
+      if (node) {
+        transformerRef.current.nodes([node]);
+        transformerRef.current.getLayer().batchDraw();
+      }
+    }
+  }, [selectedId]);
+
+  // Responsive scaling
+  useEffect(() => {
+    if (!containerRef.current || !bgImage) return;
+
+    const updateSize = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const padding = 32;
+      const availableWidth = container.offsetWidth - padding;
+      const availableHeight = container.offsetHeight - padding;
+
+      const imgWidth = bgImage.width;
+      const imgHeight = bgImage.height;
+
+      const scaleX = availableWidth / imgWidth;
+      const scaleY = availableHeight / imgHeight;
+      const scale = Math.min(scaleX, scaleY, 1);
+
+      setStageSize({
+        width: imgWidth * scale,
+        height: imgHeight * scale,
+        scale: scale
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [bgImage]);
+
+  const handleExport = () => {
+    if (stageRef.current) {
+      setSelectedId(null);
+      setTimeout(() => {
+        // Export at full resolution
+        const oldScale = stageRef.current.scale();
+        stageRef.current.scale({ x: 1, y: 1 });
+        stageRef.current.width(bgImage?.width || 800);
+        stageRef.current.height(bgImage?.height || 600);
+        
+        const dataUrl = stageRef.current.toDataURL({ pixelRatio: 2 });
+        
+        // Restore responsive scale
+        stageRef.current.scale(oldScale);
+        stageRef.current.width(stageSize.width);
+        stageRef.current.height(stageSize.height);
+        
+        onExport(dataUrl);
+      }, 100);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-slate-900 overflow-hidden">
+      <div className="flex flex-col sm:flex-row items-center justify-between p-3 sm:p-4 bg-slate-900/80 backdrop-blur-md border-b border-white/10 gap-3">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="p-2 bg-amber-500/10 rounded-lg shrink-0">
+            <Maximize2 className="w-4 h-4 text-amber-500" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-white truncate">Interactive Editor</h3>
+            <p className="text-[9px] text-white/40 uppercase tracking-wider font-bold truncate">Drag & Resize elements</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <button 
+            onClick={() => {
+              const initialElements: any[] = [];
+              if (heading) initialElements.push({ id: 'heading', type: 'text', text: heading, x: 50, y: 50, fontSize: 48 });
+              if (title) initialElements.push({ id: 'title', type: 'text', text: title, x: 50, y: 120, fontSize: 32 });
+              if (logo) initialElements.push({ id: 'logo', type: 'logo', x: 50, y: 200, width: 150, height: 150 });
+              setElements(initialElements);
+              setSelectedId(null);
+            }}
+            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white text-[10px] sm:text-xs font-medium transition-colors"
+          >
+            Reset
+          </button>
+          <button 
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 sm:px-6 py-1.5 sm:py-2 rounded-full bg-amber-600 hover:bg-amber-500 text-white transition-all shadow-lg shadow-amber-600/20 active:scale-95 whitespace-nowrap"
+          >
+            <Download className="w-3 h-3 sm:w-4 h-4" />
+            <span className="text-[10px] sm:text-sm font-bold">Save & Download</span>
+          </button>
+        </div>
+      </div>
+
+      <div ref={containerRef} className="flex-1 flex items-center justify-center p-4 sm:p-8 overflow-hidden touch-none">
+        <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.5)] bg-white rounded-sm overflow-hidden">
+          <Stage 
+            width={stageSize.width} 
+            height={stageSize.height}
+            scaleX={stageSize.scale}
+            scaleY={stageSize.scale}
+            ref={stageRef}
+            onMouseDown={(e) => {
+              const clickedOnEmpty = e.target === e.target.getStage();
+              if (clickedOnEmpty) {
+                setSelectedId(null);
+              }
+            }}
+            onTouchStart={(e) => {
+              const clickedOnEmpty = e.target === e.target.getStage();
+              if (clickedOnEmpty) {
+                setSelectedId(null);
+              }
+            }}
+            style={{ cursor: selectedId ? 'move' : 'default' }}
+          >
+            <Layer>
+              {bgImage && <KonvaImage image={bgImage} width={bgImage.width} height={bgImage.height} />}
+              
+              {elements.map((el, i) => {
+                if (el.type === 'text') {
+                  return (
+                    <KonvaText
+                      key={el.id}
+                      id={el.id}
+                      text={el.text}
+                      x={el.x}
+                      y={el.y}
+                      fontSize={el.fontSize}
+                      fontFamily="'Inter', sans-serif"
+                      fontStyle="bold"
+                      fill="#ffffff"
+                      shadowColor="black"
+                      shadowBlur={10}
+                      shadowOpacity={0.5}
+                      draggable
+                      onDragEnd={(e) => {
+                        const newElements = [...elements];
+                        newElements[i] = { ...el, x: e.target.x(), y: e.target.y() };
+                        setElements(newElements);
+                      }}
+                      onTransformEnd={(e) => {
+                        const node = e.target;
+                        const newElements = [...elements];
+                        newElements[i] = {
+                          ...el,
+                          x: node.x(),
+                          y: node.y(),
+                          scaleX: node.scaleX(),
+                          scaleY: node.scaleY(),
+                        };
+                        setElements(newElements);
+                      }}
+                      onClick={() => setSelectedId(el.id)}
+                      onTap={() => setSelectedId(el.id)}
+                    />
+                  );
+                }
+                if (el.type === 'logo' && logoImage) {
+                  return (
+                    <KonvaImage
+                      key={el.id}
+                      id={el.id}
+                      image={logoImage}
+                      x={el.x}
+                      y={el.y}
+                      width={el.width}
+                      height={el.height}
+                      draggable
+                      onDragEnd={(e) => {
+                        const newElements = [...elements];
+                        newElements[i] = { ...el, x: e.target.x(), y: e.target.y() };
+                        setElements(newElements);
+                      }}
+                      onTransformEnd={(e) => {
+                        const node = e.target;
+                        const newElements = [...elements];
+                        newElements[i] = {
+                          ...el,
+                          x: node.x(),
+                          y: node.y(),
+                          scaleX: node.scaleX(),
+                          scaleY: node.scaleY(),
+                        };
+                        setElements(newElements);
+                      }}
+                      onClick={() => setSelectedId(el.id)}
+                      onTap={() => setSelectedId(el.id)}
+                    />
+                  );
+                }
+                return null;
+              })}
+              
+              {selectedId && (
+                <Transformer
+                  ref={transformerRef}
+                  enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+                  rotateEnabled={true}
+                  keepRatio={true}
+                  borderStroke="#f59e0b"
+                  anchorStroke="#f59e0b"
+                  anchorFill="#ffffff"
+                  anchorSize={8}
+                />
+              )}
+            </Layer>
+          </Stage>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function App() {
   const [input, setInput] = useState('');
@@ -51,12 +346,34 @@ export default function App() {
   const [mode, setMode] = useState<ReplyRequest['mode'] | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [activeQuickSetting, setActiveQuickSetting] = useState<'sender' | 'tone' | 'language' | null>(null);
+  const [activeQuickSetting, setActiveQuickSetting] = useState<'sender' | 'tone' | 'language' | 'image-theme' | 'image-bg' | 'image-logo' | 'image-preset' | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  
+  // Image mode settings
+  const [imageHeading, setImageHeading] = useState('');
+  const [imageTitle, setImageTitle] = useState('');
+  const [imageSpecialRequirement, setImageSpecialRequirement] = useState('');
+  const [imageLogo, setImageLogo] = useState<string | null>(null);
+  const [imageLogoMimeType, setImageLogoMimeType] = useState<string | null>(null);
+  const [imageTheme, setImageTheme] = useState<'Ramadan' | 'Special Offer' | 'Regular'>('Regular');
+  const [imageBackgroundType, setImageBackgroundType] = useState('Studio');
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg'>('sm');
+  
+  // Preview and Limits
+  const [previewData, setPreviewData] = useState<{
+    image: string;
+    heading?: string;
+    title?: string;
+    logo?: string;
+  } | null>(null);
+  const [dailyImageCount, setDailyImageCount] = useState(0);
+  const DAILY_LIMIT = 25;
   const [chatWidth, setChatWidth] = useState<'narrow' | 'standard' | 'wide'>('standard');
   const [showGeneralSettings, setShowGeneralSettings] = useState(false);
   const [apiKeyMissing, setApiKeyMissing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -74,6 +391,37 @@ export default function App() {
     }
   }, [messages, loading]);
 
+  // Load and reset daily limits
+  useEffect(() => {
+    const savedDate = localStorage.getItem('last_gen_date');
+    const savedCount = localStorage.getItem('daily_image_count');
+    const today = new Date().toDateString();
+
+    if (savedDate !== today) {
+      localStorage.setItem('last_gen_date', today);
+      localStorage.setItem('daily_image_count', '0');
+      setDailyImageCount(0);
+    } else if (savedCount) {
+      setDailyImageCount(parseInt(savedCount, 10));
+    }
+  }, []);
+
+  const incrementImageCount = () => {
+    const newCount = dailyImageCount + 1;
+    setDailyImageCount(newCount);
+    localStorage.setItem('daily_image_count', newCount.toString());
+  };
+
+  const applyPreset = (preset: ImagePreset) => {
+    setImageHeading(preset.heading);
+    setImageTitle(preset.title);
+    setImageTheme(preset.theme);
+    setImageBackgroundType(preset.backgroundType);
+    setImageSpecialRequirement(preset.specialRequirement);
+    setSelectedPresetId(preset.id);
+    setActiveQuickSetting(null);
+  };
+
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
@@ -87,6 +435,18 @@ export default function App() {
     setMessages(prev => [...prev, userMsg]);
     const currentInput = input;
     setInput('');
+
+    if (mode === 'image') {
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "I've noted your requirements. Now, please upload the product photo you'd like me to enhance.",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -119,40 +479,156 @@ export default function App() {
     }
   };
 
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setImageLogo(base64);
+      setImageLogoMimeType(file.type);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || loading) return;
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      const base64Data = base64.split(',')[1];
+      
+      const userMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: input.trim() || "Please enhance this product photo.",
+        image: base64,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, userMsg]);
+      const currentInput = input;
+      setInput('');
+      setLoading(true);
+
+      try {
+        const enhancedImageUrl = await generateProductPhotography({
+          base64Image: base64Data,
+          mimeType: file.type,
+          heading: imageHeading,
+          title: imageTitle,
+          specialRequirement: (currentInput + " " + imageSpecialRequirement).trim(),
+          logoImage: imageLogo?.split(',')[1],
+          logoMimeType: imageLogoMimeType || undefined,
+          theme: imageTheme,
+          backgroundType: imageBackgroundType
+        });
+        
+        incrementImageCount();
+        
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: "Here is your professional product photography shot:",
+          image: enhancedImageUrl,
+          imageMetadata: {
+            heading: imageHeading,
+            title: imageTitle,
+            logo: imageLogo || undefined
+          },
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, assistantMsg]);
+      } catch (error) {
+        console.error(error);
+        const errorMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: "I'm sorry, I couldn't process the image. Please try again.",
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMsg]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+    // Reset input
+    e.target.value = '';
+  };
+
   const handleRegenerate = async (index: number) => {
     if (loading) return;
     
     // Find the closest preceding user message
-    let userMessageContent = '';
+    let userMessage: ChatMessage | null = null;
     for (let i = index - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
-        userMessageContent = messages[i].content as string;
+        userMessage = messages[i];
         break;
       }
     }
 
-    if (!userMessageContent) return;
+    if (!userMessage) return;
 
     setLoading(true);
     try {
-      const res = await generateCorporateReply({ 
-        message: userMessageContent, 
-        sender, 
-        tone, 
-        inputLanguage,
-        mode: mode || 'reply'
-      });
+      let assistantMsg: ChatMessage;
       
-      const newAssistantMsg: ChatMessage = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: res,
-        timestamp: new Date(),
-      };
+      if (mode === 'image' && userMessage.image) {
+        const base64Data = userMessage.image.split(',')[1];
+        const mimeType = userMessage.image.split(';')[0].split(':')[1];
+        
+        const enhancedImageUrl = await generateProductPhotography({
+          base64Image: base64Data,
+          mimeType: mimeType,
+          heading: imageHeading,
+          title: imageTitle,
+          specialRequirement: (userMessage.content as string + " " + imageSpecialRequirement).trim(),
+          logoImage: imageLogo?.split(',')[1],
+          logoMimeType: imageLogoMimeType || undefined,
+          theme: imageTheme,
+          backgroundType: imageBackgroundType
+        });
+        
+        incrementImageCount();
+        
+        assistantMsg = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: "Here is your professional product photography shot:",
+          image: enhancedImageUrl,
+          imageMetadata: {
+            heading: imageHeading,
+            title: imageTitle,
+            logo: imageLogo || undefined
+          },
+          timestamp: new Date(),
+        };
+      } else {
+        const res = await generateCorporateReply({ 
+          message: userMessage.content as string, 
+          sender, 
+          tone, 
+          inputLanguage,
+          mode: mode || 'reply'
+        });
+        
+        assistantMsg = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: res,
+          timestamp: new Date(),
+        };
+      }
 
       setMessages(prev => {
         const next = [...prev];
-        next[index] = newAssistantMsg;
+        next[index] = assistantMsg;
         return next;
       });
     } catch (error) {
@@ -171,8 +647,25 @@ export default function App() {
   return (
     <div className={cn(
       "flex flex-col h-screen font-sans transition-colors duration-300",
-      isDarkMode ? "bg-slate-950 text-slate-100 dark" : "bg-white text-slate-900"
+      isDarkMode ? "bg-slate-950 text-slate-100 dark" : "bg-white text-slate-900",
+      fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base"
     )}>
+      {/* Hidden File Inputs */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        className="hidden" 
+        accept="image/*" 
+        onChange={handleImageUpload} 
+      />
+      <input 
+        type="file" 
+        ref={logoInputRef} 
+        className="hidden" 
+        accept="image/*" 
+        onChange={handleLogoUpload} 
+      />
+
       {/* Header */}
       <header className={cn(
         "flex items-center justify-between px-6 py-4 border-b sticky top-0 z-10 backdrop-blur-md",
@@ -180,7 +673,7 @@ export default function App() {
       )}>
         <div className="w-8" /> {/* Spacer */}
         <h1 className={cn(
-          "text-xl font-semibold tracking-tight",
+          "text-base font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis px-2",
           isDarkMode ? "text-slate-100" : "text-slate-800"
         )}>
           {!mode ? "Re-Play" : mode === 'reply' ? "Reply Something" : "Say Something"}
@@ -192,6 +685,7 @@ export default function App() {
                 setMode(null);
                 setMessages([]);
                 setActiveQuickSetting(null);
+                setInput('');
               }}
               className={cn(
                 "p-2 rounded-full transition-colors mr-2",
@@ -232,8 +726,7 @@ export default function App() {
       >
         <div className={cn(
           "mx-auto space-y-8 transition-all duration-300",
-          chatWidth === 'narrow' ? "max-w-xl" : chatWidth === 'wide' ? "max-w-5xl" : "max-w-3xl",
-          fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base"
+          chatWidth === 'narrow' ? "max-w-xl" : chatWidth === 'wide' ? "max-w-5xl" : "max-w-3xl"
         )}>
           {apiKeyMissing && (
             <div className={cn(
@@ -263,17 +756,17 @@ export default function App() {
               </div>
               <div className="space-y-1">
                 <h2 className={cn(
-                  "text-2xl font-bold tracking-tight",
+                  "text-xl font-bold tracking-tight",
                   isDarkMode ? "text-slate-100" : "text-slate-800"
                 )}>Welcome to Re-Play</h2>
-                <p className="text-xs text-slate-500">Choose how you'd like to communicate today.</p>
+                <p className="opacity-60">Choose how you'd like to communicate today.</p>
               </div>
               
-              <div className="grid grid-cols-2 gap-3 w-full max-w-2xl px-2">
+              <div className="grid grid-cols-3 gap-3 w-full max-w-2xl px-2">
                 <button 
                   onClick={() => setMode('reply')}
                   className={cn(
-                    "flex flex-col items-center p-4 sm:p-6 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-[0.98] text-center space-y-3 group",
+                    "flex flex-col items-center p-4 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-[0.98] text-center space-y-3 group",
                     isDarkMode 
                       ? "bg-slate-900 border-slate-800 hover:border-indigo-500/50" 
                       : "bg-white border-slate-100 hover:border-indigo-500/30 hover:shadow-xl hover:shadow-indigo-500/5"
@@ -283,15 +776,15 @@ export default function App() {
                     <MessageSquareReply className="w-5 h-5" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className={cn("font-bold text-sm sm:text-base", isDarkMode ? "text-slate-100" : "text-slate-800")}>Reply</h3>
-                    <p className="text-[10px] sm:text-xs text-slate-500 line-clamp-2">Paste a message to craft a response.</p>
+                    <h3 className={cn("font-bold text-xs sm:text-sm", isDarkMode ? "text-slate-100" : "text-slate-800")}>Reply</h3>
+                    <p className="text-[10px] text-slate-500 line-clamp-2">Paste message to craft response.</p>
                   </div>
                 </button>
 
                 <button 
                   onClick={() => setMode('say')}
                   className={cn(
-                    "flex flex-col items-center p-4 sm:p-6 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-[0.98] text-center space-y-3 group",
+                    "flex flex-col items-center p-4 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-[0.98] text-center space-y-3 group",
                     isDarkMode 
                       ? "bg-slate-900 border-slate-800 hover:border-emerald-500/50" 
                       : "bg-white border-slate-100 hover:border-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/5"
@@ -301,8 +794,26 @@ export default function App() {
                     <MessageSquareText className="w-5 h-5" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className={cn("font-bold text-sm sm:text-base", isDarkMode ? "text-slate-100" : "text-slate-800")}>Say</h3>
-                    <p className="text-[10px] sm:text-xs text-slate-500 line-clamp-2">Write intent and I'll polish it.</p>
+                    <h3 className={cn("font-bold text-xs sm:text-sm", isDarkMode ? "text-slate-100" : "text-slate-800")}>Say</h3>
+                    <p className="text-[10px] text-slate-500 line-clamp-2">Write intent and I'll polish it.</p>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={() => setMode('image')}
+                  className={cn(
+                    "flex flex-col items-center p-4 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-[0.98] text-center space-y-3 group",
+                    isDarkMode 
+                      ? "bg-slate-900 border-slate-800 hover:border-amber-500/50" 
+                      : "bg-white border-slate-100 hover:border-amber-500/30 hover:shadow-xl hover:shadow-amber-500/5"
+                  )}
+                >
+                  <div className="p-3 bg-amber-500/10 rounded-xl group-hover:bg-amber-500 group-hover:text-white transition-colors text-amber-500">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className={cn("font-bold text-xs sm:text-sm", isDarkMode ? "text-slate-100" : "text-slate-800")}>Image</h3>
+                    <p className="text-[10px] text-slate-500 line-clamp-2">Upload product for photography.</p>
                   </div>
                 </button>
               </div>
@@ -317,21 +828,50 @@ export default function App() {
               )}>
                 {mode === 'reply' ? (
                   <MessageSquareReply className="w-6 h-6 text-indigo-500" />
-                ) : (
+                ) : mode === 'say' ? (
                   <MessageSquareText className="w-6 h-6 text-emerald-500" />
+                ) : (
+                  <Camera className="w-6 h-6 text-amber-500" />
                 )}
               </div>
               <h2 className={cn(
                 "text-2xl font-bold",
                 isDarkMode ? "text-slate-100" : "text-slate-800"
               )}>
-                {mode === 'reply' ? "Paste the message you received" : "What would you like to say?"}
+                {mode === 'reply' ? "Paste the message you received" : mode === 'say' ? "What would you like to say?" : "Upload your product photo"}
               </h2>
               <p className="text-slate-500 max-w-sm">
                 {mode === 'reply' 
                   ? "I'll help you craft a professional reply based on the hierarchy and tone you choose."
-                  : "I'll correct your grammar and arrange your thoughts into a clear, professional message."}
+                  : mode === 'say'
+                  ? "I'll correct your grammar and arrange your thoughts into a clear, professional message."
+                  : "I'll transform your photo into a professional studio-quality product photography shot."}
               </p>
+              {mode === 'image' && (
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={dailyImageCount >= DAILY_LIMIT}
+                    className={cn(
+                      "mt-4 flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg",
+                      dailyImageCount >= DAILY_LIMIT 
+                        ? "bg-slate-200 text-slate-400 cursor-not-allowed" 
+                        : "bg-amber-600 text-white hover:bg-amber-700 shadow-amber-600/20"
+                    )}
+                  >
+                    <Upload className="w-4 h-4" />
+                    Select Photo
+                  </button>
+                  <p className={cn(
+                    "text-[10px] font-medium",
+                    dailyImageCount >= DAILY_LIMIT ? "text-red-500" : "text-slate-400"
+                  )}>
+                    {dailyImageCount >= DAILY_LIMIT 
+                      ? "Daily limit reached (25/25)" 
+                      : `Daily limit: ${dailyImageCount}/${DAILY_LIMIT} images used`}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -349,10 +889,28 @@ export default function App() {
                   msg.role === 'user' 
                     ? (mode === 'reply' 
                         ? (isDarkMode ? "bg-purple-900/40 text-purple-100 border border-purple-800/50 rounded-tr-none" : "bg-purple-50 text-purple-900 border border-purple-100 rounded-tr-none")
-                        : (isDarkMode ? "bg-emerald-900/40 text-emerald-100 border border-emerald-800/50 rounded-tr-none" : "bg-emerald-50 text-emerald-900 border border-emerald-100 rounded-tr-none")
+                        : mode === 'say'
+                        ? (isDarkMode ? "bg-emerald-900/40 text-emerald-100 border border-emerald-800/50 rounded-tr-none" : "bg-emerald-50 text-emerald-900 border border-emerald-100 rounded-tr-none")
+                        : (isDarkMode ? "bg-amber-900/40 text-amber-100 border border-amber-800/50 rounded-tr-none" : "bg-amber-50 text-amber-900 border border-amber-100 rounded-tr-none")
                       )
                     : (isDarkMode ? "bg-slate-900 border border-slate-800 shadow-sm rounded-tl-none text-slate-200" : "bg-white border border-slate-100 shadow-sm rounded-tl-none text-slate-800")
                 )}>
+                  {msg.image && (
+                    <div 
+                      onClick={() => setPreviewData({
+                        image: msg.image!,
+                        heading: msg.imageMetadata?.heading,
+                        title: msg.imageMetadata?.title,
+                        logo: msg.imageMetadata?.logo
+                      })}
+                      className="mb-2 rounded-xl overflow-hidden border border-slate-200/50 dark:border-slate-800/50 cursor-zoom-in group/img relative"
+                    >
+                      <img src={msg.image} alt="Uploaded product" className="w-full h-auto max-h-64 object-contain" referrerPolicy="no-referrer" />
+                      <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                        <Maximize2 className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                  )}
                   {typeof msg.content === 'string' ? (
                     <p>{msg.content}</p>
                   ) : (
@@ -453,6 +1011,56 @@ export default function App() {
                   isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"
                 )}
               >
+                {activeQuickSetting === 'image-theme' && (['Regular', 'Ramadan', 'Special Offer'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => {
+                      setImageTheme(t);
+                      setSelectedPresetId(null);
+                      setActiveQuickSetting(null);
+                    }}
+                    className={cn(
+                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      imageTheme === t 
+                        ? "bg-amber-600 text-white" 
+                        : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+                {activeQuickSetting === 'image-bg' && (['Studio', 'Nature', 'Urban', 'Solid Color', 'Gradient'] as const).map((bg) => (
+                  <button
+                    key={bg}
+                    onClick={() => {
+                      setImageBackgroundType(bg);
+                      setSelectedPresetId(null);
+                      setActiveQuickSetting(null);
+                    }}
+                    className={cn(
+                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      imageBackgroundType === bg 
+                        ? "bg-amber-600 text-white" 
+                        : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
+                    )}
+                  >
+                    {bg}
+                  </button>
+                ))}
+                {activeQuickSetting === 'image-preset' && IMAGE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyPreset(preset)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      selectedPresetId === preset.id 
+                        ? "bg-amber-600 text-white" 
+                        : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
+                    )}
+                  >
+                    {preset.name}
+                  </button>
+                ))}
                 {activeQuickSetting === 'sender' && (['Boss', 'Colleague', 'Junior'] as const).map((role) => (
                   <button
                     key={role}
@@ -517,52 +1125,162 @@ export default function App() {
 
           {/* Minimal Selectors above input */}
           {mode && (
-            <div className="flex flex-wrap gap-2 px-1">
-              <button 
-                onClick={() => setActiveQuickSetting(activeQuickSetting === 'sender' ? null : 'sender')}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
-                  activeQuickSetting === 'sender'
-                    ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
-                    : (isDarkMode 
-                        ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
-                        : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
-                )}
-              >
-                <User className="w-2.5 h-2.5" />
-                {sender}
-                <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'sender' && "rotate-180")} />
-              </button>
-              <button 
-                onClick={() => setActiveQuickSetting(activeQuickSetting === 'tone' ? null : 'tone')}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
-                  activeQuickSetting === 'tone'
-                    ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
-                    : (isDarkMode 
-                        ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
-                        : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
-                )}
-              >
-                <Smile className="w-2.5 h-2.5" />
-                {tone}
-                <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'tone' && "rotate-180")} />
-              </button>
-              <button 
-                onClick={() => setActiveQuickSetting(activeQuickSetting === 'language' ? null : 'language')}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
-                  activeQuickSetting === 'language'
-                    ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
-                    : (isDarkMode 
-                        ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
-                        : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
-                )}
-              >
-                <Globe className="w-2.5 h-2.5" />
-                {inputLanguage}
-                <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'language' && "rotate-180")} />
-              </button>
+            <div className="flex overflow-x-auto no-scrollbar gap-2 px-1 pb-1 -mx-1">
+              {mode !== 'image' ? (
+                <>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'sender' ? null : 'sender')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      activeQuickSetting === 'sender'
+                        ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
+                        : (isDarkMode 
+                            ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
+                            : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
+                    )}
+                  >
+                    <User className="w-2.5 h-2.5" />
+                    {sender}
+                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'sender' && "rotate-180")} />
+                  </button>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'tone' ? null : 'tone')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      activeQuickSetting === 'tone'
+                        ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
+                        : (isDarkMode 
+                            ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
+                            : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
+                    )}
+                  >
+                    <Smile className="w-2.5 h-2.5" />
+                    {tone}
+                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'tone' && "rotate-180")} />
+                  </button>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'language' ? null : 'language')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      activeQuickSetting === 'language'
+                        ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
+                        : (isDarkMode 
+                            ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200" 
+                            : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
+                    )}
+                  >
+                    <Globe className="w-2.5 h-2.5" />
+                    {inputLanguage}
+                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'language' && "rotate-180")} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-preset' ? null : 'image-preset')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      activeQuickSetting === 'image-preset' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                    )}
+                  >
+                    <Wand2 className="w-2.5 h-2.5" />
+                    {selectedPresetId ? IMAGE_PRESETS.find(p => p.id === selectedPresetId)?.name : 'Presets'}
+                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'image-preset' && "rotate-180")} />
+                  </button>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-theme' ? null : 'image-theme')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      activeQuickSetting === 'image-theme' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                    )}
+                  >
+                    <Palette className="w-2.5 h-2.5" />
+                    {imageTheme}
+                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'image-theme' && "rotate-180")} />
+                  </button>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-bg' ? null : 'image-bg')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      activeQuickSetting === 'image-bg' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                    )}
+                  >
+                    <Layers className="w-2.5 h-2.5" />
+                    {imageBackgroundType}
+                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'image-bg' && "rotate-180")} />
+                  </button>
+                  <button 
+                    onClick={() => logoInputRef.current?.click()}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      imageLogo ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                    )}
+                  >
+                    {imageLogo ? (
+                      <div className="w-3 h-3 rounded-full overflow-hidden border border-white/20">
+                        <img src={imageLogo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                    ) : (
+                      <ImagePlus className="w-2.5 h-2.5" />
+                    )}
+                    {imageLogo ? 'Logo Added' : 'Add Logo'}
+                    {imageLogo && (
+                      <X 
+                        className="w-2 h-2 ml-1 hover:text-red-200" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setImageLogo(null);
+                          setImageLogoMimeType(null);
+                        }}
+                      />
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {mode === 'image' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-1">
+              <div className="relative">
+                <Layout className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Heading (e.g. 50% OFF)" 
+                  value={imageHeading}
+                  onChange={(e) => setImageHeading(e.target.value)}
+                  className={cn(
+                    "w-full pl-8 pr-3 py-2.5 sm:py-2 rounded-xl border text-[11px] outline-none transition-all",
+                    isDarkMode ? "bg-slate-900 border-slate-800 text-slate-200 focus:border-amber-500/50" : "bg-white border-slate-200 text-slate-800 focus:border-amber-500/50"
+                  )}
+                />
+              </div>
+              <div className="relative">
+                <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Title (e.g. Summer Sale)" 
+                  value={imageTitle}
+                  onChange={(e) => setImageTitle(e.target.value)}
+                  className={cn(
+                    "w-full pl-8 pr-3 py-2.5 sm:py-2 rounded-xl border text-[11px] outline-none transition-all",
+                    isDarkMode ? "bg-slate-900 border-slate-800 text-slate-200 focus:border-amber-500/50" : "bg-white border-slate-200 text-slate-800 focus:border-amber-500/50"
+                  )}
+                />
+              </div>
+              <div className="relative sm:col-span-2">
+                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Special Requirements (e.g. soft shadows)" 
+                  value={imageSpecialRequirement}
+                  onChange={(e) => setImageSpecialRequirement(e.target.value)}
+                  className={cn(
+                    "w-full pl-8 pr-3 py-2.5 sm:py-2 rounded-xl border text-[11px] outline-none transition-all",
+                    isDarkMode ? "bg-slate-900 border-slate-800 text-slate-200 focus:border-amber-500/50" : "bg-white border-slate-200 text-slate-800 focus:border-amber-500/50"
+                  )}
+                />
+              </div>
             </div>
           )}
 
@@ -578,19 +1296,33 @@ export default function App() {
               }}
               placeholder={mode === 'reply' ? "Paste message here..." : "What do you want to say? (e.g. tell boss i'm sick)"}
               className={cn(
-                "w-full border rounded-2xl pl-4 pr-12 py-4 text-sm outline-none transition-all shadow-sm resize-none min-h-[56px] max-h-40",
+                "w-full border rounded-2xl pl-4 pr-12 py-4 outline-none transition-all shadow-sm resize-none min-h-[56px] max-h-40",
+                fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base",
                 isDarkMode 
                   ? cn(
                       "bg-slate-900 border-slate-800 text-slate-200",
-                      mode === 'reply' ? "focus:ring-purple-500/10 focus:border-purple-500/30" : "focus:ring-emerald-500/10 focus:border-emerald-500/30"
+                      mode === 'reply' ? "focus:ring-purple-500/10 focus:border-purple-500/30" : mode === 'say' ? "focus:ring-emerald-500/10 focus:border-emerald-500/30" : "focus:ring-amber-500/10 focus:border-amber-500/30"
                     )
                   : cn(
                       "bg-white border-slate-200 text-slate-800",
-                      mode === 'reply' ? "focus:ring-4 focus:ring-purple-500/5 focus:border-purple-500/50" : "focus:ring-4 focus:ring-emerald-500/5 focus:border-emerald-500/50"
+                      mode === 'reply' ? "focus:ring-4 focus:ring-purple-500/5 focus:border-purple-500/50" : mode === 'say' ? "focus:ring-4 focus:ring-emerald-500/5 focus:border-emerald-500/50" : "focus:ring-4 focus:ring-amber-500/5 focus:border-amber-500/50"
                     )
               )}
               rows={1}
             />
+            {mode === 'image' && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={dailyImageCount >= DAILY_LIMIT}
+                className={cn(
+                  "absolute right-12 bottom-2.5 p-2 rounded-xl transition-all",
+                  isDarkMode ? "bg-slate-800 text-slate-400 hover:bg-slate-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                  dailyImageCount >= DAILY_LIMIT && "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <ImageIcon className="w-5 h-5" />
+              </button>
+            )}
             <button
               onClick={handleSend}
               disabled={!input.trim() || loading}
@@ -599,7 +1331,9 @@ export default function App() {
                 input.trim() && !loading 
                   ? (mode === 'reply' 
                       ? (isDarkMode ? "bg-purple-600 text-white shadow-md hover:bg-purple-500" : "bg-purple-600 text-white shadow-md hover:bg-purple-700")
-                      : (isDarkMode ? "bg-emerald-600 text-white shadow-md hover:bg-emerald-500" : "bg-emerald-600 text-white shadow-md hover:bg-emerald-700")
+                      : mode === 'say'
+                      ? (isDarkMode ? "bg-emerald-600 text-white shadow-md hover:bg-emerald-500" : "bg-emerald-600 text-white shadow-md hover:bg-emerald-700")
+                      : (isDarkMode ? "bg-amber-600 text-white shadow-md hover:bg-amber-500" : "bg-amber-600 text-white shadow-md hover:bg-amber-700")
                     )
                   : (isDarkMode ? "bg-slate-800 text-slate-600 cursor-not-allowed" : "bg-slate-100 text-slate-300 cursor-not-allowed")
               )}
@@ -618,6 +1352,45 @@ export default function App() {
       </footer>
       {/* General Settings Modal */}
       <AnimatePresence>
+        {previewData && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black flex flex-col"
+          >
+            {/* Preview Header */}
+            <div className="flex items-center justify-between p-4 bg-black/50 backdrop-blur-md border-b border-white/10">
+              <button 
+                onClick={() => setPreviewData(null)}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span className="text-sm font-medium">Back</span>
+              </button>
+            </div>
+
+            {/* Canvas Editor */}
+            <div className="flex-1 overflow-hidden">
+              <CanvasEditor 
+                image={previewData.image}
+                heading={previewData.heading}
+                title={previewData.title}
+                logo={previewData.logo}
+                isDarkMode={isDarkMode}
+                onExport={(dataUrl) => {
+                  const link = document.createElement('a');
+                  link.href = dataUrl;
+                  link.download = `product-photography-${Date.now()}.png`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+              />
+            </div>
+          </motion.div>
+        )}
+
         {showGeneralSettings && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
