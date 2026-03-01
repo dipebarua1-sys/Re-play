@@ -8,6 +8,7 @@ import {
   Briefcase, 
   Users, 
   Smile, 
+  Star,
   Frown, 
   Minus, 
   Copy, 
@@ -45,7 +46,7 @@ import {
   Sparkles as SparklesIcon
 } from 'lucide-react';
 import { generateCorporateReply, ReplyRequest, ReplyResponse, generateProductPhotography } from './services/geminiService';
-import { IMAGE_PRESETS, ImagePreset } from './constants';
+import { IMAGE_PRESETS, ImagePreset, TextStyles } from './constants';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -62,6 +63,8 @@ interface ChatMessage {
     heading?: string;
     title?: string;
     logo?: string;
+    headingStyle?: TextStyles;
+    titleStyle?: TextStyles;
   };
   timestamp: Date;
 }
@@ -71,6 +74,8 @@ const CanvasEditor = ({
   heading, 
   title, 
   logo, 
+  headingStyle,
+  titleStyle,
   isDarkMode,
   onExport 
 }: { 
@@ -78,6 +83,8 @@ const CanvasEditor = ({
   heading?: string; 
   title?: string; 
   logo?: string; 
+  headingStyle?: TextStyles;
+  titleStyle?: TextStyles;
   isDarkMode: boolean;
   onExport: (dataUrl: string) => void;
 }) => {
@@ -101,21 +108,52 @@ const CanvasEditor = ({
     height?: number;
     scaleX?: number;
     scaleY?: number;
+    style?: TextStyles;
   }[]>([]);
+
+  const updateElementStyle = (id: string, newStyle: Partial<TextStyles>) => {
+    setElements(prev => prev.map(el => 
+      el.id === id ? { ...el, style: { ...el.style!, ...newStyle } } : el
+    ));
+  };
+
+  const updateElementFontSize = (id: string, newSize: number) => {
+    setElements(prev => prev.map(el => 
+      el.id === id ? { ...el, fontSize: newSize } : el
+    ));
+  };
+
+  const selectedElement = elements.find(el => el.id === selectedId);
 
   useEffect(() => {
     const initialElements: any[] = [];
     if (heading) {
-      initialElements.push({ id: 'heading', type: 'text', text: heading, x: 50, y: 50, fontSize: 48 });
+      initialElements.push({ 
+        id: 'heading', 
+        type: 'text', 
+        text: heading, 
+        x: 50, 
+        y: 50, 
+        fontSize: 48,
+        style: headingStyle
+      });
     }
     if (title) {
-      initialElements.push({ id: 'title', type: 'text', text: title, x: 50, y: 120, fontSize: 32 });
+      initialElements.push({ 
+        id: 'title', 
+        type: 'text', 
+        text: title, 
+        x: 50, 
+        y: 120, 
+        fontSize: 32,
+        style: titleStyle
+      });
     }
     if (logo) {
       initialElements.push({ id: 'logo', type: 'logo', x: 50, y: 200, width: 150, height: 150 });
     }
     setElements(initialElements);
-  }, [heading, title, logo]);
+  }, [heading, title, logo, headingStyle, titleStyle]);
 
   useEffect(() => {
     if (selectedId && transformerRef.current) {
@@ -197,8 +235,24 @@ const CanvasEditor = ({
           <button 
             onClick={() => {
               const initialElements: any[] = [];
-              if (heading) initialElements.push({ id: 'heading', type: 'text', text: heading, x: 50, y: 50, fontSize: 48 });
-              if (title) initialElements.push({ id: 'title', type: 'text', text: title, x: 50, y: 120, fontSize: 32 });
+              if (heading) initialElements.push({ 
+                id: 'heading', 
+                type: 'text', 
+                text: heading, 
+                x: 50, 
+                y: 50, 
+                fontSize: 48,
+                style: headingStyle
+              });
+              if (title) initialElements.push({ 
+                id: 'title', 
+                type: 'text', 
+                text: title, 
+                x: 50, 
+                y: 120, 
+                fontSize: 32,
+                style: titleStyle
+              });
               if (logo) initialElements.push({ id: 'logo', type: 'logo', x: 50, y: 200, width: 150, height: 150 });
               setElements(initialElements);
               setSelectedId(null);
@@ -240,10 +294,34 @@ const CanvasEditor = ({
             style={{ cursor: selectedId ? 'move' : 'default' }}
           >
             <Layer>
-              {bgImage && <KonvaImage image={bgImage} width={bgImage.width} height={bgImage.height} />}
+              {bgImage && (
+                <KonvaImage 
+                  image={bgImage} 
+                  width={bgImage.width} 
+                  height={bgImage.height} 
+                />
+              )}
               
               {elements.map((el, i) => {
                 if (el.type === 'text') {
+                  const style = el.style || {
+                    fontFamily: "'Inter', sans-serif",
+                    fill: "#ffffff",
+                    fontStyle: "bold",
+                    shadowColor: "black",
+                    shadowBlur: 10,
+                    shadowOpacity: 0.5
+                  };
+
+                  const fillConfig: any = {};
+                  if (style.fillType === 'gradient' && style.fill && style.fillAfter) {
+                    fillConfig.fillLinearGradientStartPoint = { x: 0, y: 0 };
+                    fillConfig.fillLinearGradientEndPoint = { x: 0, y: el.fontSize || 48 };
+                    fillConfig.fillLinearGradientColorStops = [0, style.fill, 1, style.fillAfter];
+                  } else {
+                    fillConfig.fill = style.fill || '#ffffff';
+                  }
+
                   return (
                     <KonvaText
                       key={el.id}
@@ -252,12 +330,13 @@ const CanvasEditor = ({
                       x={el.x}
                       y={el.y}
                       fontSize={el.fontSize}
-                      fontFamily="'Inter', sans-serif"
-                      fontStyle="bold"
-                      fill="#ffffff"
-                      shadowColor="black"
-                      shadowBlur={10}
-                      shadowOpacity={0.5}
+                      fontFamily={style.fontFamily}
+                      fontStyle={style.fontStyle}
+                      {...fillConfig}
+                      shadowColor={style.shadowColor}
+                      shadowBlur={style.shadowBlur}
+                      shadowOpacity={style.shadowOpacity}
+                      letterSpacing={style.letterSpacing}
                       draggable
                       onDragEnd={(e) => {
                         const newElements = [...elements];
@@ -332,6 +411,91 @@ const CanvasEditor = ({
             </Layer>
           </Stage>
         </div>
+
+        {/* Text Customization Toolbar */}
+        <div className={cn(
+          "p-3 border-t flex flex-wrap items-center gap-4",
+          isDarkMode ? "bg-slate-900 border-slate-800" : "bg-slate-50 border-slate-200"
+        )}>
+          {selectedElement && selectedElement.type === 'text' && (
+            <>
+              {/* Font Size */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Size</span>
+                <input 
+                  type="range" 
+                  min="10" 
+                  max="200" 
+                  value={selectedElement.fontSize || 48}
+                  onChange={(e) => updateElementFontSize(selectedId!, parseInt(e.target.value))}
+                  className="w-24 h-1 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+                <span className="text-xs font-mono w-8">{selectedElement.fontSize}</span>
+              </div>
+
+              {/* Font Family */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Font</span>
+                <select 
+                  value={selectedElement.style?.fontFamily}
+                  onChange={(e) => updateElementStyle(selectedId!, { fontFamily: e.target.value })}
+                  className={cn(
+                    "text-xs px-2 py-1 rounded-lg border",
+                    isDarkMode ? "bg-slate-800 border-slate-700 text-slate-200" : "bg-white border-slate-200 text-slate-700"
+                  )}
+                >
+                  <option value="'Inter', sans-serif">Inter</option>
+                  <option value="'Cormorant Garamond', serif">Cormorant</option>
+                  <option value="'Anton', sans-serif">Anton</option>
+                  <option value="'Playfair Display', serif">Playfair</option>
+                  <option value="'JetBrains Mono', monospace">Mono</option>
+                </select>
+              </div>
+
+              {/* Color Type */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Type</span>
+                <div className="flex bg-slate-200 dark:bg-slate-800 rounded-lg p-0.5">
+                  <button 
+                    onClick={() => updateElementStyle(selectedId!, { fillType: 'solid' })}
+                    className={cn(
+                      "px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                      selectedElement.style?.fillType !== 'gradient' ? "bg-white dark:bg-slate-700 shadow-sm" : "text-slate-500"
+                    )}
+                  >Solid</button>
+                  <button 
+                    onClick={() => updateElementStyle(selectedId!, { fillType: 'gradient', fillAfter: selectedElement.style?.fill || '#000000' })}
+                    className={cn(
+                      "px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                      selectedElement.style?.fillType === 'gradient' ? "bg-white dark:bg-slate-700 shadow-sm" : "text-slate-500"
+                    )}
+                  >Gradient</button>
+                </div>
+              </div>
+
+              {/* Colors */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Color</span>
+                <div className="flex items-center gap-1.5">
+                  <input 
+                    type="color" 
+                    value={selectedElement.style?.fill || '#ffffff'}
+                    onChange={(e) => updateElementStyle(selectedId!, { fill: e.target.value })}
+                    className="w-6 h-6 rounded-full overflow-hidden border-0 p-0 cursor-pointer"
+                  />
+                  {selectedElement.style?.fillType === 'gradient' && (
+                    <input 
+                      type="color" 
+                      value={selectedElement.style?.fillAfter || '#000000'}
+                      onChange={(e) => updateElementStyle(selectedId!, { fillAfter: e.target.value })}
+                      className="w-6 h-6 rounded-full overflow-hidden border-0 p-0 cursor-pointer"
+                    />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -346,12 +510,17 @@ export default function App() {
   const [mode, setMode] = useState<ReplyRequest['mode'] | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [activeQuickSetting, setActiveQuickSetting] = useState<'sender' | 'tone' | 'language' | 'image-theme' | 'image-bg' | 'image-logo' | 'image-preset' | null>(null);
+  const [activeQuickSetting, setActiveQuickSetting] = useState<'sender' | 'tone' | 'language' | 'image-theme' | 'image-bg' | 'image-logo' | 'image-preset' | 'image-color' | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   
   // Image mode settings
   const [imageHeading, setImageHeading] = useState('');
   const [imageTitle, setImageTitle] = useState('');
+  const [imageToEnhance, setImageToEnhance] = useState<string | null>(null);
+  const [imageToEnhanceMimeType, setImageToEnhanceMimeType] = useState<string | null>(null);
+  const [imageHeadingStyle, setImageHeadingStyle] = useState<TextStyles | undefined>(undefined);
+  const [imageTitleStyle, setImageTitleStyle] = useState<TextStyles | undefined>(undefined);
+  const [imageTextColor, setImageTextColor] = useState('#ffffff');
   const [imageSpecialRequirement, setImageSpecialRequirement] = useState('');
   const [imageLogo, setImageLogo] = useState<string | null>(null);
   const [imageLogoMimeType, setImageLogoMimeType] = useState<string | null>(null);
@@ -360,18 +529,29 @@ export default function App() {
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg'>('sm');
   
+  // Classic mode settings
+  const [classicProductImage, setClassicProductImage] = useState<string | null>(null);
+  const [classicProductMimeType, setClassicProductMimeType] = useState<string | null>(null);
+  const [classicInspirationImage, setClassicInspirationImage] = useState<string | null>(null);
+  const [classicInspirationMimeType, setClassicInspirationMimeType] = useState<string | null>(null);
+  const classicProductInputRef = useRef<HTMLInputElement>(null);
+  const classicInspirationInputRef = useRef<HTMLInputElement>(null);
+  
   // Preview and Limits
   const [previewData, setPreviewData] = useState<{
     image: string;
     heading?: string;
     title?: string;
     logo?: string;
+    headingStyle?: TextStyles;
+    titleStyle?: TextStyles;
   } | null>(null);
   const [dailyImageCount, setDailyImageCount] = useState(0);
   const DAILY_LIMIT = 25;
   const [chatWidth, setChatWidth] = useState<'narrow' | 'standard' | 'wide'>('standard');
   const [showGeneralSettings, setShowGeneralSettings] = useState(false);
   const [apiKeyMissing, setApiKeyMissing] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   
@@ -390,6 +570,13 @@ export default function App() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, loading]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Load and reset daily limits
   useEffect(() => {
@@ -415,6 +602,9 @@ export default function App() {
   const applyPreset = (preset: ImagePreset) => {
     setImageHeading(preset.heading);
     setImageTitle(preset.title);
+    setImageHeadingStyle(preset.headingStyle);
+    setImageTitleStyle(preset.titleStyle);
+    setImageTextColor(preset.headingStyle.fill || '#ffffff');
     setImageTheme(preset.theme);
     setImageBackgroundType(preset.backgroundType);
     setImageSpecialRequirement(preset.specialRequirement);
@@ -437,6 +627,10 @@ export default function App() {
     setInput('');
 
     if (mode === 'image') {
+      if (imageToEnhance) {
+        handleImageSend(currentInput);
+        return;
+      }
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -479,7 +673,108 @@ export default function App() {
     }
   };
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleClassicInspirationUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setClassicInspirationImage(base64);
+      setClassicInspirationMimeType(file.type);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleClassicProductUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setClassicProductImage(base64);
+      setClassicProductMimeType(file.type);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleClassicSend = async () => {
+    if (!classicProductImage || !classicInspirationImage || loading) return;
+
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: "Generate classic image using inspiration.",
+      image: classicProductImage,
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setLoading(true);
+
+    try {
+      const enhancedImageUrl = await generateProductPhotography({
+        base64Image: classicProductImage.split(',')[1],
+        mimeType: classicProductMimeType || 'image/png',
+        inspirationImage: classicInspirationImage.split(',')[1],
+        inspirationMimeType: classicInspirationMimeType || 'image/png',
+        heading: imageHeading,
+        title: imageTitle,
+        logoImage: imageLogo?.split(',')[1],
+        logoMimeType: imageLogoMimeType || undefined,
+        theme: imageTheme,
+        backgroundType: imageBackgroundType
+      });
+      
+      incrementImageCount();
+      
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "Here is your classic product photography shot:",
+        image: enhancedImageUrl,
+        imageMetadata: {
+          heading: imageHeading,
+          title: imageTitle,
+          logo: imageLogo || undefined,
+          headingStyle: imageHeadingStyle || {
+            fontFamily: "'Inter', sans-serif",
+            fill: imageTextColor,
+            fontStyle: "bold",
+            shadowColor: "black",
+            shadowBlur: 10,
+            shadowOpacity: 0.5
+          },
+          titleStyle: imageTitleStyle || {
+            fontFamily: "'Inter', sans-serif",
+            fill: imageTextColor,
+            fontStyle: "normal",
+            shadowColor: "black",
+            shadowBlur: 5,
+            shadowOpacity: 0.5
+          }
+        },
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+    } catch (error) {
+      console.error(error);
+      const errorMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "I'm sorry, I encountered an error. Please try again.",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -495,70 +790,91 @@ export default function App() {
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || loading) return;
+    if (!file) return;
 
     const reader = new FileReader();
-    reader.onloadend = async () => {
+    reader.onloadend = () => {
       const base64 = reader.result as string;
-      const base64Data = base64.split(',')[1];
-      
-      const userMsg: ChatMessage = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: input.trim() || "Please enhance this product photo.",
-        image: base64,
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, userMsg]);
-      const currentInput = input;
-      setInput('');
-      setLoading(true);
-
-      try {
-        const enhancedImageUrl = await generateProductPhotography({
-          base64Image: base64Data,
-          mimeType: file.type,
-          heading: imageHeading,
-          title: imageTitle,
-          specialRequirement: (currentInput + " " + imageSpecialRequirement).trim(),
-          logoImage: imageLogo?.split(',')[1],
-          logoMimeType: imageLogoMimeType || undefined,
-          theme: imageTheme,
-          backgroundType: imageBackgroundType
-        });
-        
-        incrementImageCount();
-        
-        const assistantMsg: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: "Here is your professional product photography shot:",
-          image: enhancedImageUrl,
-          imageMetadata: {
-            heading: imageHeading,
-            title: imageTitle,
-            logo: imageLogo || undefined
-          },
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, assistantMsg]);
-      } catch (error) {
-        console.error(error);
-        const errorMsg: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: "I'm sorry, I couldn't process the image. Please try again.",
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, errorMsg]);
-      } finally {
-        setLoading(false);
-      }
+      setImageToEnhance(base64);
+      setImageToEnhanceMimeType(file.type);
     };
     reader.readAsDataURL(file);
-    // Reset input
     e.target.value = '';
+  };
+
+  const handleImageSend = async (customInput?: string) => {
+    if (!imageToEnhance || loading) return;
+
+    const finalInput = customInput !== undefined ? customInput : input;
+
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: finalInput.trim() || "Please enhance this product photo.",
+      image: imageToEnhance,
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const enhancedImageUrl = await generateProductPhotography({
+        base64Image: imageToEnhance.split(',')[1],
+        mimeType: imageToEnhanceMimeType || 'image/png',
+        heading: imageHeading,
+        title: imageTitle,
+        specialRequirement: (finalInput + " " + imageSpecialRequirement).trim(),
+        logoImage: imageLogo?.split(',')[1],
+        logoMimeType: imageLogoMimeType || undefined,
+        theme: imageTheme,
+        backgroundType: imageBackgroundType
+      });
+      
+      incrementImageCount();
+      
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "Here is your professional product photography shot:",
+        image: enhancedImageUrl,
+        imageMetadata: {
+          heading: imageHeading,
+          title: imageTitle,
+          logo: imageLogo || undefined,
+          headingStyle: imageHeadingStyle || {
+            fontFamily: "'Inter', sans-serif",
+            fill: imageTextColor,
+            fontStyle: "bold",
+            shadowColor: "black",
+            shadowBlur: 10,
+            shadowOpacity: 0.5
+          },
+          titleStyle: imageTitleStyle || {
+            fontFamily: "'Inter', sans-serif",
+            fill: imageTextColor,
+            fontStyle: "normal",
+            shadowColor: "black",
+            shadowBlur: 5,
+            shadowOpacity: 0.5
+          }
+        },
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+    } catch (error) {
+      console.error(error);
+      const errorMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "I'm sorry, I couldn't process the image. Please try again.",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegenerate = async (index: number) => {
@@ -605,7 +921,23 @@ export default function App() {
           imageMetadata: {
             heading: imageHeading,
             title: imageTitle,
-            logo: imageLogo || undefined
+            logo: imageLogo || undefined,
+            headingStyle: imageHeadingStyle || {
+              fontFamily: "'Inter', sans-serif",
+              fill: imageTextColor,
+              fontStyle: "bold",
+              shadowColor: "black",
+              shadowBlur: 10,
+              shadowOpacity: 0.5
+            },
+            titleStyle: imageTitleStyle || {
+              fontFamily: "'Inter', sans-serif",
+              fill: imageTextColor,
+              fontStyle: "normal",
+              shadowColor: "black",
+              shadowBlur: 5,
+              shadowOpacity: 0.5
+            }
           },
           timestamp: new Date(),
         };
@@ -650,6 +982,78 @@ export default function App() {
       isDarkMode ? "bg-slate-950 text-slate-100 dark" : "bg-white text-slate-900",
       fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base"
     )}>
+      {/* Splash Screen */}
+      <AnimatePresence>
+        {showSplash && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.8, ease: "easeOut" }}
+              className="text-center space-y-6"
+            >
+              <div className="relative inline-block">
+                <motion.div
+                  animate={{ 
+                    scale: [1, 1.1, 1],
+                    rotate: [0, 5, -5, 0]
+                  }}
+                  transition={{ repeat: Infinity, duration: 4 }}
+                  className="w-24 h-24 bg-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-indigo-500/40"
+                >
+                  <Sparkles className="w-12 h-12 text-white" />
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.8 }}
+                  className="absolute -top-2 -right-2 w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center shadow-lg"
+                >
+                  <Star className="w-4 h-4 text-white fill-current" />
+                </motion.div>
+              </div>
+              
+              <div className="space-y-2">
+                <motion.h1
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="text-3xl font-black tracking-tighter text-white"
+                >
+                  Welcome <span className="text-indigo-400">Dip</span>
+                </motion.h1>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.8 }}
+                  className="text-slate-400 font-medium tracking-wide uppercase text-[10px]"
+                >
+                  on your own app
+                </motion.p>
+              </div>
+
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: 100 }}
+                transition={{ delay: 1, duration: 1.5 }}
+                className="h-1 bg-indigo-500/30 rounded-full mx-auto overflow-hidden"
+              >
+                <motion.div
+                  animate={{ x: [-100, 100] }}
+                  transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                  className="h-full w-1/2 bg-indigo-500"
+                />
+              </motion.div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Hidden File Inputs */}
       <input 
         type="file" 
@@ -665,10 +1069,24 @@ export default function App() {
         accept="image/*" 
         onChange={handleLogoUpload} 
       />
+      <input 
+        type="file" 
+        ref={classicProductInputRef} 
+        className="hidden" 
+        accept="image/*" 
+        onChange={handleClassicProductUpload} 
+      />
+      <input 
+        type="file" 
+        ref={classicInspirationInputRef} 
+        className="hidden" 
+        accept="image/*" 
+        onChange={handleClassicInspirationUpload} 
+      />
 
       {/* Header */}
       <header className={cn(
-        "flex items-center justify-between px-6 py-4 border-b sticky top-0 z-10 backdrop-blur-md",
+        "flex items-center justify-between px-3 py-2 border-b sticky top-0 z-10 backdrop-blur-md",
         isDarkMode ? "bg-slate-950/80 border-slate-800" : "bg-white/80 border-slate-100"
       )}>
         <div className="w-8" /> {/* Spacer */}
@@ -676,7 +1094,7 @@ export default function App() {
           "text-base font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis px-2",
           isDarkMode ? "text-slate-100" : "text-slate-800"
         )}>
-          {!mode ? "Re-Play" : mode === 'reply' ? "Reply Something" : "Say Something"}
+          {!mode ? "Re-Play" : mode === 'reply' ? "Reply Mode" : mode === 'say' ? "Say Mode" : mode === 'image' ? "Image Mode" : "Classic Mode"}
         </h1>
         <div className="flex items-center gap-2">
           {mode && (
@@ -686,6 +1104,10 @@ export default function App() {
                 setMessages([]);
                 setActiveQuickSetting(null);
                 setInput('');
+                setImageToEnhance(null);
+                setImageToEnhanceMimeType(null);
+                setClassicProductImage(null);
+                setClassicInspirationImage(null);
               }}
               className={cn(
                 "p-2 rounded-full transition-colors mr-2",
@@ -762,7 +1184,7 @@ export default function App() {
                 <p className="opacity-60">Choose how you'd like to communicate today.</p>
               </div>
               
-              <div className="grid grid-cols-3 gap-3 w-full max-w-2xl px-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl px-2">
                 <button 
                   onClick={() => setMode('reply')}
                   className={cn(
@@ -814,6 +1236,24 @@ export default function App() {
                   <div className="space-y-1">
                     <h3 className={cn("font-bold text-xs sm:text-sm", isDarkMode ? "text-slate-100" : "text-slate-800")}>Image</h3>
                     <p className="text-[10px] text-slate-500 line-clamp-2">Upload product for photography.</p>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={() => setMode('classic')}
+                  className={cn(
+                    "flex flex-col items-center p-4 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-[0.98] text-center space-y-3 group",
+                    isDarkMode 
+                      ? "bg-slate-900 border-slate-800 hover:border-rose-500/50" 
+                      : "bg-white border-slate-100 hover:border-rose-500/30 hover:shadow-xl hover:shadow-rose-500/5"
+                  )}
+                >
+                  <div className="p-3 bg-rose-500/10 rounded-xl group-hover:bg-rose-500 group-hover:text-white transition-colors text-rose-500">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className={cn("font-bold text-xs sm:text-sm", isDarkMode ? "text-slate-100" : "text-slate-800")}>Classic</h3>
+                    <p className="text-[10px] text-slate-500 line-clamp-2">Use inspiration for placement.</p>
                   </div>
                 </button>
               </div>
@@ -901,7 +1341,9 @@ export default function App() {
                         image: msg.image!,
                         heading: msg.imageMetadata?.heading,
                         title: msg.imageMetadata?.title,
-                        logo: msg.imageMetadata?.logo
+                        logo: msg.imageMetadata?.logo,
+                        headingStyle: msg.imageMetadata?.headingStyle,
+                        titleStyle: msg.imageMetadata?.titleStyle
                       })}
                       className="mb-2 rounded-xl overflow-hidden border border-slate-200/50 dark:border-slate-800/50 cursor-zoom-in group/img relative"
                     >
@@ -999,6 +1441,44 @@ export default function App() {
         isDarkMode ? "bg-slate-950 border-slate-800" : "bg-white border-slate-100"
       )}>
         <div className="max-w-3xl mx-auto space-y-4">
+          {/* Mode Specific Upload Areas */}
+          {mode === 'classic' && (
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div 
+                onClick={() => classicProductInputRef.current?.click()}
+                className={cn(
+                   "aspect-video rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-slate-50 dark:hover:bg-slate-900/50",
+                   classicProductImage ? "border-amber-500/50 bg-amber-500/5" : "border-slate-200 dark:border-slate-800"
+                )}
+              >
+                {classicProductImage ? (
+                  <img src={classicProductImage} className="w-full h-full object-contain rounded-xl" referrerPolicy="no-referrer" />
+                ) : (
+                  <>
+                    <Camera className="w-6 h-6 text-slate-400 mb-2" />
+                    <span className="text-[10px] font-bold uppercase text-slate-400">Product Photo</span>
+                  </>
+                )}
+              </div>
+              <div 
+                onClick={() => classicInspirationInputRef.current?.click()}
+                className={cn(
+                  "aspect-video rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-slate-50 dark:hover:bg-slate-900/50",
+                  classicInspirationImage ? "border-rose-500/50 bg-rose-500/5" : "border-slate-200 dark:border-slate-800"
+                )}
+              >
+                {classicInspirationImage ? (
+                  <img src={classicInspirationImage} className="w-full h-full object-contain rounded-xl" referrerPolicy="no-referrer" />
+                ) : (
+                  <>
+                    <Sparkles className="w-6 h-6 text-slate-400 mb-2" />
+                    <span className="text-[10px] font-bold uppercase text-slate-400">Inspiration</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Context-Specific Quick Selectors */}
           <AnimatePresence>
             {mode && activeQuickSetting && (
@@ -1020,7 +1500,7 @@ export default function App() {
                       setActiveQuickSetting(null);
                     }}
                     className={cn(
-                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      "px-2.5 py-1 rounded-xl text-[10px] font-medium transition-all",
                       imageTheme === t 
                         ? "bg-amber-600 text-white" 
                         : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
@@ -1038,7 +1518,7 @@ export default function App() {
                       setActiveQuickSetting(null);
                     }}
                     className={cn(
-                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      "px-2.5 py-1 rounded-xl text-[10px] font-medium transition-all",
                       imageBackgroundType === bg 
                         ? "bg-amber-600 text-white" 
                         : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
@@ -1052,7 +1532,7 @@ export default function App() {
                     key={preset.id}
                     onClick={() => applyPreset(preset)}
                     className={cn(
-                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      "px-2.5 py-1 rounded-xl text-[10px] font-medium transition-all",
                       selectedPresetId === preset.id 
                         ? "bg-amber-600 text-white" 
                         : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
@@ -1060,6 +1540,22 @@ export default function App() {
                   >
                     {preset.name}
                   </button>
+                ))}
+                {activeQuickSetting === 'image-color' && (['#ffffff', '#000000', '#FFD700', '#FF4500', '#00FF00', '#00BFFF', '#FF1493', '#8A2BE2'] as const).map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => {
+                      setImageTextColor(color);
+                      if (imageHeadingStyle) setImageHeadingStyle({ ...imageHeadingStyle, fill: color });
+                      if (imageTitleStyle) setImageTitleStyle({ ...imageTitleStyle, fill: color });
+                      setActiveQuickSetting(null);
+                    }}
+                    className={cn(
+                      "w-6 h-6 rounded-full border transition-all hover:scale-110",
+                      imageTextColor === color ? "border-amber-500 scale-110 ring-2 ring-amber-500/20" : "border-transparent"
+                    )}
+                    style={{ backgroundColor: color }}
+                  />
                 ))}
                 {activeQuickSetting === 'sender' && (['Boss', 'Colleague', 'Junior'] as const).map((role) => (
                   <button
@@ -1069,7 +1565,7 @@ export default function App() {
                       setActiveQuickSetting(null);
                     }}
                     className={cn(
-                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      "px-2.5 py-1 rounded-xl text-[10px] font-medium transition-all",
                       sender === role 
                         ? "bg-indigo-600 text-white" 
                         : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
@@ -1086,7 +1582,7 @@ export default function App() {
                       setActiveQuickSetting(null);
                     }}
                     className={cn(
-                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      "px-2.5 py-1 rounded-xl text-[10px] font-medium transition-all",
                       tone === t 
                         ? "bg-indigo-600 text-white" 
                         : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
@@ -1103,7 +1599,7 @@ export default function App() {
                       setActiveQuickSetting(null);
                     }}
                     className={cn(
-                      "px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all",
+                      "px-2.5 py-1 rounded-xl text-[10px] font-medium transition-all",
                       inputLanguage === lang 
                         ? "bg-indigo-600 text-white" 
                         : (isDarkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-50 text-slate-600")
@@ -1125,13 +1621,13 @@ export default function App() {
 
           {/* Minimal Selectors above input */}
           {mode && (
-            <div className="flex overflow-x-auto no-scrollbar gap-2 px-1 pb-1 -mx-1">
-              {mode !== 'image' ? (
+            <div className="flex items-center overflow-x-auto no-scrollbar gap-2 px-1 pb-1 -mx-1">
+              {mode === 'reply' || mode === 'say' ? (
                 <>
                   <button 
                     onClick={() => setActiveQuickSetting(activeQuickSetting === 'sender' ? null : 'sender')}
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
                       activeQuickSetting === 'sender'
                         ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
                         : (isDarkMode 
@@ -1139,14 +1635,14 @@ export default function App() {
                             : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
                     )}
                   >
-                    <User className="w-2.5 h-2.5" />
+                    <User className="w-2 h-2" />
                     {sender}
-                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'sender' && "rotate-180")} />
+                    <ChevronDown className={cn("w-1.5 h-1.5 transition-transform", activeQuickSetting === 'sender' && "rotate-180")} />
                   </button>
                   <button 
                     onClick={() => setActiveQuickSetting(activeQuickSetting === 'tone' ? null : 'tone')}
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
                       activeQuickSetting === 'tone'
                         ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
                         : (isDarkMode 
@@ -1154,14 +1650,14 @@ export default function App() {
                             : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
                     )}
                   >
-                    <Smile className="w-2.5 h-2.5" />
+                    <Smile className="w-2 h-2" />
                     {tone}
-                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'tone' && "rotate-180")} />
+                    <ChevronDown className={cn("w-1.5 h-1.5 transition-transform", activeQuickSetting === 'tone' && "rotate-180")} />
                   </button>
                   <button 
                     onClick={() => setActiveQuickSetting(activeQuickSetting === 'language' ? null : 'language')}
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
                       activeQuickSetting === 'language'
                         ? (mode === 'reply' ? "bg-purple-600 border-purple-600 text-white" : "bg-emerald-600 border-emerald-600 text-white")
                         : (isDarkMode 
@@ -1169,64 +1665,121 @@ export default function App() {
                             : "bg-slate-50 border-slate-200/50 text-slate-600 hover:bg-slate-100 hover:border-slate-300")
                     )}
                   >
-                    <Globe className="w-2.5 h-2.5" />
+                    <Globe className="w-2 h-2" />
                     {inputLanguage}
-                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'language' && "rotate-180")} />
+                    <ChevronDown className={cn("w-1.5 h-1.5 transition-transform", activeQuickSetting === 'language' && "rotate-180")} />
+                  </button>
+                </>
+              ) : mode === 'image' ? (
+                <>
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
+                        imageToEnhance ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                      )}
+                    >
+                      {imageToEnhance ? (
+                        <div className="w-2 h-2 rounded-full overflow-hidden border border-white/20">
+                          <img src={imageToEnhance} alt="Product" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </div>
+                      ) : (
+                        <Camera className="w-2 h-2" />
+                      )}
+                      {imageToEnhance ? 'Product' : 'Add Product'}
+                      {imageToEnhance && (
+                        <X 
+                          className="w-1.5 h-1.5 ml-0.5 hover:text-red-200" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setImageToEnhance(null);
+                            setImageToEnhanceMimeType(null);
+                          }}
+                        />
+                      )}
+                    </button>
+                    <button 
+                      onClick={() => logoInputRef.current?.click()}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
+                        imageLogo ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                      )}
+                    >
+                      {imageLogo ? (
+                        <div className="w-2 h-2 rounded-full overflow-hidden border border-white/20">
+                          <img src={imageLogo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </div>
+                      ) : (
+                        <ImagePlus className="w-2 h-2" />
+                      )}
+                      {imageLogo ? 'Logo' : 'Add Logo'}
+                      {imageLogo && (
+                        <X 
+                          className="w-1.5 h-1.5 ml-0.5 hover:text-red-200" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setImageLogo(null);
+                            setImageLogoMimeType(null);
+                          }}
+                        />
+                      )}
+                    </button>
+                  </div>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-preset' ? null : 'image-preset')}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
+                      activeQuickSetting === 'image-preset' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                    )}
+                  >
+                    <Wand2 className="w-2 h-2" />
+                    {selectedPresetId ? IMAGE_PRESETS.find(p => p.id === selectedPresetId)?.name : 'Presets'}
+                    <ChevronDown className={cn("w-1.5 h-1.5 transition-transform", activeQuickSetting === 'image-preset' && "rotate-180")} />
+                  </button>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-theme' ? null : 'image-theme')}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
+                      activeQuickSetting === 'image-theme' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                    )}
+                  >
+                    <Palette className="w-2 h-2" />
+                    {imageTheme}
+                    <ChevronDown className={cn("w-1.5 h-1.5 transition-transform", activeQuickSetting === 'image-theme' && "rotate-180")} />
+                  </button>
+                  <button 
+                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-bg' ? null : 'image-bg')}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
+                      activeQuickSetting === 'image-bg' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
+                    )}
+                  >
+                    <Layers className="w-2 h-2" />
+                    {imageBackgroundType}
+                    <ChevronDown className={cn("w-1.5 h-1.5 transition-transform", activeQuickSetting === 'image-bg' && "rotate-180")} />
                   </button>
                 </>
               ) : (
                 <>
                   <button 
-                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-preset' ? null : 'image-preset')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
-                      activeQuickSetting === 'image-preset' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
-                    )}
-                  >
-                    <Wand2 className="w-2.5 h-2.5" />
-                    {selectedPresetId ? IMAGE_PRESETS.find(p => p.id === selectedPresetId)?.name : 'Presets'}
-                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'image-preset' && "rotate-180")} />
-                  </button>
-                  <button 
-                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-theme' ? null : 'image-theme')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
-                      activeQuickSetting === 'image-theme' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
-                    )}
-                  >
-                    <Palette className="w-2.5 h-2.5" />
-                    {imageTheme}
-                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'image-theme' && "rotate-180")} />
-                  </button>
-                  <button 
-                    onClick={() => setActiveQuickSetting(activeQuickSetting === 'image-bg' ? null : 'image-bg')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
-                      activeQuickSetting === 'image-bg' ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
-                    )}
-                  >
-                    <Layers className="w-2.5 h-2.5" />
-                    {imageBackgroundType}
-                    <ChevronDown className={cn("w-2 h-2 transition-transform", activeQuickSetting === 'image-bg' && "rotate-180")} />
-                  </button>
-                  <button 
                     onClick={() => logoInputRef.current?.click()}
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition-all hover:scale-105 active:scale-95",
+                      "flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-medium transition-all hover:scale-105 active:scale-95 shrink-0",
                       imageLogo ? "bg-amber-600 border-amber-600 text-white" : (isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600")
                     )}
                   >
                     {imageLogo ? (
-                      <div className="w-3 h-3 rounded-full overflow-hidden border border-white/20">
+                      <div className="w-2 h-2 rounded-full overflow-hidden border border-white/20">
                         <img src={imageLogo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       </div>
                     ) : (
-                      <ImagePlus className="w-2.5 h-2.5" />
+                      <ImagePlus className="w-2 h-2" />
                     )}
-                    {imageLogo ? 'Logo Added' : 'Add Logo'}
+                    {imageLogo ? 'Logo' : 'Add Logo'}
                     {imageLogo && (
                       <X 
-                        className="w-2 h-2 ml-1 hover:text-red-200" 
+                        className="w-1.5 h-1.5 ml-0.5 hover:text-red-200" 
                         onClick={(e) => {
                           e.stopPropagation();
                           setImageLogo(null);
@@ -1240,7 +1793,7 @@ export default function App() {
             </div>
           )}
 
-          {mode === 'image' && (
+          {(mode === 'image' || mode === 'classic') && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-1">
               <div className="relative">
                 <Layout className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
@@ -1285,65 +1838,70 @@ export default function App() {
           )}
 
           <div className="relative group">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder={mode === 'reply' ? "Paste message here..." : "What do you want to say? (e.g. tell boss i'm sick)"}
-              className={cn(
-                "w-full border rounded-2xl pl-4 pr-12 py-4 outline-none transition-all shadow-sm resize-none min-h-[56px] max-h-40",
-                fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base",
-                isDarkMode 
-                  ? cn(
-                      "bg-slate-900 border-slate-800 text-slate-200",
-                      mode === 'reply' ? "focus:ring-purple-500/10 focus:border-purple-500/30" : mode === 'say' ? "focus:ring-emerald-500/10 focus:border-emerald-500/30" : "focus:ring-amber-500/10 focus:border-amber-500/30"
-                    )
-                  : cn(
-                      "bg-white border-slate-200 text-slate-800",
-                      mode === 'reply' ? "focus:ring-4 focus:ring-purple-500/5 focus:border-purple-500/50" : mode === 'say' ? "focus:ring-4 focus:ring-emerald-500/5 focus:border-emerald-500/50" : "focus:ring-4 focus:ring-amber-500/5 focus:border-amber-500/50"
-                    )
-              )}
-              rows={1}
-            />
-            {mode === 'image' && (
+            {mode === 'classic' || mode === 'image' ? (
               <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={dailyImageCount >= DAILY_LIMIT}
+                onClick={mode === 'classic' ? handleClassicSend : () => handleImageSend()}
+                disabled={loading || (mode === 'classic' && (!classicProductImage || !classicInspirationImage)) || (mode === 'image' && !imageToEnhance)}
                 className={cn(
-                  "absolute right-12 bottom-2.5 p-2 rounded-xl transition-all",
-                  isDarkMode ? "bg-slate-800 text-slate-400 hover:bg-slate-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
-                  dailyImageCount >= DAILY_LIMIT && "opacity-50 cursor-not-allowed"
+                  "w-full py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2",
+                  loading || (mode === 'classic' && (!classicProductImage || !classicInspirationImage)) || (mode === 'image' && !imageToEnhance)
+                    ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                    : "bg-amber-600 text-white hover:bg-amber-700 shadow-lg shadow-amber-600/20 active:scale-[0.98]"
                 )}
               >
-                <ImageIcon className="w-5 h-5" />
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {mode === 'classic' ? "Generate Classic Shot" : "Generate Image Shot"}
               </button>
+            ) : (
+              <>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder={mode === 'reply' ? "Paste message here..." : "What do you want to say? (e.g. tell boss i'm sick)"}
+                  className={cn(
+                    "w-full border rounded-2xl pl-4 pr-12 py-4 outline-none transition-all shadow-sm resize-none min-h-[56px] max-h-40",
+                    fontSize === 'sm' ? "text-sm" : fontSize === 'lg' ? "text-lg" : "text-base",
+                    isDarkMode 
+                      ? cn(
+                          "bg-slate-900 border-slate-800 text-slate-200",
+                          mode === 'reply' ? "focus:ring-purple-500/10 focus:border-purple-500/30" : mode === 'say' ? "focus:ring-emerald-500/10 focus:border-emerald-500/30" : "focus:ring-amber-500/10 focus:border-amber-500/30"
+                        )
+                      : cn(
+                          "bg-white border-slate-200 text-slate-800",
+                          mode === 'reply' ? "focus:ring-4 focus:ring-purple-500/5 focus:border-purple-500/50" : mode === 'say' ? "focus:ring-4 focus:ring-emerald-500/5 focus:border-emerald-500/50" : "focus:ring-4 focus:ring-amber-500/5 focus:border-amber-500/50"
+                        )
+                  )}
+                  rows={1}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim() || loading}
+                  className={cn(
+                    "absolute right-2.5 bottom-2.5 p-2 rounded-xl transition-all",
+                    input.trim() && !loading 
+                      ? (mode === 'reply' 
+                          ? (isDarkMode ? "bg-purple-600 text-white shadow-md hover:bg-purple-500" : "bg-purple-600 text-white shadow-md hover:bg-purple-700")
+                          : mode === 'say'
+                          ? (isDarkMode ? "bg-emerald-600 text-white shadow-md hover:bg-emerald-500" : "bg-emerald-600 text-white shadow-md hover:bg-emerald-700")
+                          : (isDarkMode ? "bg-amber-600 text-white shadow-md hover:bg-amber-500" : "bg-amber-600 text-white shadow-md hover:bg-amber-700")
+                        )
+                      : (isDarkMode ? "bg-slate-800 text-slate-600 cursor-not-allowed" : "bg-slate-100 text-slate-300 cursor-not-allowed")
+                  )}
+                >
+                  {loading ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                </button>
+              </>
             )}
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || loading}
-              className={cn(
-                "absolute right-2.5 bottom-2.5 p-2 rounded-xl transition-all",
-                input.trim() && !loading 
-                  ? (mode === 'reply' 
-                      ? (isDarkMode ? "bg-purple-600 text-white shadow-md hover:bg-purple-500" : "bg-purple-600 text-white shadow-md hover:bg-purple-700")
-                      : mode === 'say'
-                      ? (isDarkMode ? "bg-emerald-600 text-white shadow-md hover:bg-emerald-500" : "bg-emerald-600 text-white shadow-md hover:bg-emerald-700")
-                      : (isDarkMode ? "bg-amber-600 text-white shadow-md hover:bg-amber-500" : "bg-amber-600 text-white shadow-md hover:bg-amber-700")
-                    )
-                  : (isDarkMode ? "bg-slate-800 text-slate-600 cursor-not-allowed" : "bg-slate-100 text-slate-300 cursor-not-allowed")
-              )}
-            >
-              {loading ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </button>
           </div>
           <p className="text-[10px] text-center text-slate-400">
             Re-Play can make mistakes. Check important info.
@@ -1377,6 +1935,8 @@ export default function App() {
                 heading={previewData.heading}
                 title={previewData.title}
                 logo={previewData.logo}
+                headingStyle={previewData.headingStyle}
+                titleStyle={previewData.titleStyle}
                 isDarkMode={isDarkMode}
                 onExport={(dataUrl) => {
                   const link = document.createElement('a');
@@ -1390,7 +1950,9 @@ export default function App() {
             </div>
           </motion.div>
         )}
+      </AnimatePresence>
 
+      <AnimatePresence>
         {showGeneralSettings && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div

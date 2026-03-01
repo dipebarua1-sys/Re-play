@@ -7,7 +7,7 @@ export interface ReplyRequest {
   sender: 'Boss' | 'Colleague' | 'Junior';
   tone: 'Positive' | 'Negative' | 'Neutral';
   inputLanguage: 'English' | 'Bangla' | 'Banglish' | 'Auto-detect';
-  mode: 'reply' | 'say' | 'image';
+  mode: 'reply' | 'say' | 'image' | 'classic';
 }
 
 export interface ReplyResponse {
@@ -72,6 +72,8 @@ Desired Tone: ${req.tone}`;
 export interface ImageRequest {
   base64Image: string;
   mimeType: string;
+  inspirationImage?: string;
+  inspirationMimeType?: string;
   heading?: string;
   title?: string;
   specialRequirement?: string;
@@ -100,14 +102,27 @@ export async function generateProductPhotography(req: ImageRequest): Promise<str
     });
   }
 
-  const prompt = `Enhance this image to look like professional product photography.
+  if (req.inspirationImage && req.inspirationMimeType) {
+    parts.push({
+      inlineData: {
+        data: req.inspirationImage,
+        mimeType: req.inspirationMimeType,
+      },
+    });
+  }
+
+  let prompt = `Enhance this image to look like professional product photography.
   
   Context & Requirements:
   - Theme: ${req.theme}
   - Background Type: ${req.backgroundType}
-  ${req.specialRequirement ? `- Special Requirement: ${req.specialRequirement}` : ''}
+  ${req.specialRequirement ? `- Special Requirement: ${req.specialRequirement}` : ''}`;
+
+  if (req.inspirationImage) {
+    prompt += `\n- Inspiration: COPY the EXACT SAME background, environment, lighting, and overall composition from the provided inspiration image. The product from the first image should be placed naturally into the environment of the inspiration image. Match the aesthetic perfectly.`;
+  }
   
-  Instructions:
+  prompt += `\n\nInstructions:
   - Make it look clean, high-end, with perfect lighting.
   - The background should match the theme (${req.theme}) and type (${req.backgroundType}).
   - Focus on the product and the environment. 
